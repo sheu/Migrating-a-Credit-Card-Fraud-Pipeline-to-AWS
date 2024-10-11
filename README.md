@@ -117,18 +117,6 @@ They would like an AWS service that:
   -  Is efficient for this infrequent monthly workload
 Can easily integrate with the service used for their job.
 
-## Built With
-
-* [AWS Simple Storage Service](https://aws.amazon.com/s3/) - Object storage for data
-* [AWS Glue](https://aws.amazon.com/glue/) - Data Catalog
-* [AWS Lambda](https://aws.amazon.com/lambda/) - Serverless compute
-* [AWS Elastic Container Registry](https://aws.amazon.com/ecr/) - Container registry
-* [AWS Elastic Container Service](https://aws.amazon.com/ecs/) - Container orchestration
-* [AWS CloudWatch](https://aws.amazon.com/cloudwatch/) - Monitoring and logging
-* [AWS CloudTrail](https://aws.amazon.com/cloudtrail/) - Monitoring and logging
-* [AWS Cloud9](https://aws.amazon.com/cloud9/) - Cloud-based IDE
-
-Include all items used to build the project.
 
 ## License
 [License](../LICENSE.md)
