@@ -28,7 +28,8 @@ Joblib 1.2.0
 Pipenv 2022.10.4
 ```
 
-### Installation
+### Installation for Local Machine
+We highly recommend completing the project work in Cloud 9
 
 Step-by-step explanation of how to get a dev environment running.
 
