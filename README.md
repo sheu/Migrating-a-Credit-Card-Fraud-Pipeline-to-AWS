@@ -12,8 +12,8 @@ You have been tasked with migrating this pipeline to AWS Cloud while ensuring im
 
 ## Getting Started
 
-Follow the steps below to make modifications of the code on your local machine:
-1. Clone the project repo  to your local machine ([instructions how to clone repos]())
+Follow the steps below to make modifications to the code on your local machine:
+1. Clone the project repo 
 2. Make the necessary modifications to the code where "#TODO"s have been provided
 3. Upload the appropriate code to your AWS environment
 4. Test your solution utilizing each AWS service
