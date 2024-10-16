@@ -44,36 +44,6 @@ List out the steps
 3. You can now run the code locally using the following command:
   - ```pipenv run python <app_name>.py```
 
-## Testing
-
-Each test script is provided within the tests folder. The tests are functions that are named verify_<service_name>_<purpose>.py. For example, the test for the model training job is named verify_glue_job.py. **TODO: Add a better name for each test that is more discreet.**
-
-### Break Down Tests
-
-Each test script is explained below:
-
-1. verify_glue_job.py
-  - This test verifies that the Glue job is configured correctly 
-  - It also uses a test dataset to verify that the data is being written to the correct location.
-2. verify_ecs_api.py
-  - This test verifies that the ECS API is configured correctly and that the necessary permissions are granted.
-  - It also uses a test request to verify that the API is working correctly.
-3. verify_lambda_function.py
-  - This test verifies that the Lambda function is configured correctly 
-  - It also uses a test request to verify that the function is working correctly.
-4. verify_iam_roles.py
-  - This test verifies that the IAM roles are correctly configured and that the necessary permissions are granted.
-
-To run the tests use:
-
-```
-pipenv run python tests/verify_<service_name>_<purpose>.py.
-```
-
-For example, to run the test for the model training job use:
-```
-pipenv run python tests/verify_glue_job.py
-```
 ## Project Instructions
 
 Below, each application is provided with its description and requirements. For each application, you must complete the following three tasks:
@@ -117,6 +87,10 @@ They would like an AWS service that:
   -  Is efficient for this infrequent monthly workload
 Can easily integrate with the service used for their job.
 
+
+## Testing
+
+Each test script is provided within the tests folder. The tests are functions that are named verify_<service_name>_<purpose>.py. For example, the test for the model training job is named verify_glue_job.py. **TODO: Add a better name for each test that is more discreet.**
 
 ## License
 [License](../LICENSE.md)
