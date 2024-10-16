@@ -4,6 +4,7 @@ In this project, you will be working as a cloud architect at a credit card compa
 1. A Spark pipeline running on a Hadoop cluster that transforms incoming data and trains the model.
 2. A containerized API running on an on-premises Apache server that returns a fraud/no-fraud response.
 3. A function that updates the data used to train the model with data every couple of months and kicks off retraining of the model.
+
 You have been tasked with migrating this pipeline to AWS Cloud while ensuring improved security, scalability, performance, and cost-efficiency.. In order to do so you will use what you've learned in the course to:
 1. Evaluate each application and determine which AWS Service will be best for deploying the service based on AWS best practices
 2. Make the appropriate changes to the source code to prepare the applications for deployment to the appropriate AWS service.
@@ -47,8 +48,8 @@ List out the steps
 ## Project Instructions
 
 Below, each application is provided with its description and requirements. For each application, you must complete the following three tasks:
-1. Identify the appropriate AWS service and configuration to migrate the application to based on the course. Write out your rationale in a doc titled service_rationale.docx.
-2. Modify each provided Python script provided to work in that service. (TODOs have been provided for each script) and use the provided test scripts to verify your function has been created appropriately. 
+1. Identify the appropriate AWS service and configuration to migrate the application to based on the course. Write out your rationale in a doc titled `service_rationale.docx`.
+2. Modify each provided Python script provided to work in that service. **(TODOs have been provided for each script)** and use the provided test scripts to verify your function has been created appropriately. 
 3. Configure each AWS Service including provisioning the service and appropriate IAM Roles. 
 4. Use the associated test scripts to verify the AWS Service is running appropriately. 
 5. Once completed for each service, use the final test script to verify the application works correctly together. 
