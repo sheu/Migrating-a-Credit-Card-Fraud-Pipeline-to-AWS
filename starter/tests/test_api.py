@@ -8,7 +8,7 @@ BASE_URL = "http://localhost:8000"
 
 # Load the credit card fraud dataset
 # Ensure the dataset path is correct and accessible
-dataset_path = "/Users/jonathandyer/Documents/Dyer Innovation/data/credit_card_transaction_data_labeled.csv"
+dataset_path = "/Users/sheugumbie/projects/learn/udacity/Migrating-a-Credit-Card-Fraud-Pipeline-to-AWS/starter/data/creditcard.csv"
 df = pd.read_csv(dataset_path)
 
 # Select a sample row for testing

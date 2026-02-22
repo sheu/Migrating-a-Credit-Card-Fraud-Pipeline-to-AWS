@@ -26,7 +26,7 @@ Python 3.9
 PySpark 3.3.1
 FastAPI 0.89.1
 Joblib 1.2.0
-Pipenv 2022.10.4
+venv (built into Python)
 ```
 
 ### Installation for Local Machine
@@ -36,14 +36,18 @@ Step-by-step explanation of how to get a dev environment running.
 
 List out the steps
 1. Clone the repository to your local machine
-2. (Optional) Install and create a virtual environment using pipenv
-  - ```pip install pipenv```
-  - ```pipenv shell```
-2. Install the necessary dependencies using pipenv in each project directory
-  - ```pipenv install pyspark fastapi joblib ```
-  - Note: the directories are meant to be standalone pipenv environments, so you can run ```pipenv shell``` in each directory to activate the environment.
-3. You can now run the code locally using the following command:
-  - ```pipenv run python <app_name>.py```
+2. Create and activate a Python virtual environment
+  - ```python3 -m venv .venv```
+  - ```source .venv/bin/activate```
+  - ```python -m pip install --upgrade pip setuptools wheel```
+3. Install dependencies using `requirements.txt` files
+  - ```pip install -r starter/fraud_detection_api/requirements.txt```
+  - ```pip install -r starter/fraud_detection_pipeline/requirements.txt```
+  - ```pip install -r starter/refresh_function/requirements.txt```
+  - ```pip install -r starter/refresh_function/fraud_detection_pipeline/requirements.txt```
+  - ```pip install -r starter/tests/requirements.txt```
+4. You can now run the code locally using standard Python commands
+  - ```python <app_name>.py```
 
 ## Project Instructions
 
