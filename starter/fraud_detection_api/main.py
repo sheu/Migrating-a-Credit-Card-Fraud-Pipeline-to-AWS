@@ -1,5 +1,7 @@
 import os
 import shutil
+from typing import List
+from typing import Tuple
 
 import boto3
 from fastapi import FastAPI
@@ -9,7 +11,7 @@ from pyspark.ml import PipelineModel
 
 
 class InputData(BaseModel):
-    features: list[float]
+    features: List[float]
 
 app = FastAPI()
 
@@ -19,7 +21,7 @@ spark = SparkSession.builder.appName("FraudDetectionAPI").getOrCreate()
 model = None
 
 
-def parse_s3_uri(s3_uri: str) -> tuple[str, str]:
+def parse_s3_uri(s3_uri: str) -> Tuple[str, str]:
     if not s3_uri.startswith('s3://'):
         raise ValueError('MODEL_S3_URI must start with s3://')
 

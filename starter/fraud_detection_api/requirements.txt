@@ -2,5 +2,5 @@ fastapi
 boto3
 numpy
 pydantic
-pyspark
+pyspark==3.5.8
 uvicorn

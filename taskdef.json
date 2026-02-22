@@ -1,0 +1,32 @@
+{
+  "family": "fraud-mvp-dev-task",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "runtimePlatform": {
+    "operatingSystemFamily": "LINUX",
+    "cpuArchitecture": "X86_64"
+  },
+  "cpu": "1024",
+  "memory": "2048",
+  "executionRoleArn": "arn:aws:iam::412799044451:role/fraud-mvp-dev-ecs-exec-role",
+  "taskRoleArn": "arn:aws:iam::412799044451:role/fraud-mvp-dev-ecs-task-role",
+  "containerDefinitions": [
+    {
+      "name": "fraud-api",
+      "image": "412799044451.dkr.ecr.us-east-1.amazonaws.com/fraud-detection-api:latest",
+      "essential": true,
+      "portMappings": [{"containerPort": 8000, "protocol": "tcp"}],
+      "environment": [
+        {"name":"MODEL_S3_URI","value":"s3://fraud-mvp-dev-model-412799044451/model/latest/"}
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-region": "us-east-1",
+          "awslogs-group": "/ecs/fraud-mvp-dev",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}
