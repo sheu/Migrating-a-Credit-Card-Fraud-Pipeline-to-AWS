@@ -242,3 +242,18 @@ aws s3api put-bucket-notification-configuration \
 
   ALB_DNS=$(aws elbv2 describe-load-balancers --names ${ALB_NAME} --query 'LoadBalancers[0].DNSName' --output text)
 curl -X POST "http://${ALB_DNS}/predict/" -H "Content-Type: application/json" -d '{"features":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]}'
+
+
+# 1) Edit placeholders in the policy file first:
+# <AWS_REGION> <ACCOUNT_ID> <GLUE_JOB_NAME> <DATA_BUCKET> <RETRAIN_PREFIX> <ARCHIVE_PREFIX>
+
+# 2) Attach as inline policy to your Lambda execution role
+aws iam put-role-policy \
+  --role-name  ${PROJECT}-lambda-role \
+  --policy-name refresh-function-inline-policy \
+  --policy-document file://starter/refresh_function/lambda_iam_policy.json
+
+# 3) Set Lambda env vars used by refresh_function.py
+aws lambda update-function-configuration \
+  --function-name ${LAMBDA_NAME} \
+  --environment "Variables={GLUE_JOB_NAME=${GLUE_JOB_NAME},MODEL_SAVE_PATH=s3://${MODEL_BUCKET}/model/latest/,ARCHIVE_PREFIX=archive}"

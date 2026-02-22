@@ -1,49 +1,65 @@
-#TODO: Add the necessary Cloud SDK imports 
 import os
-import datetime
-import time
-from pyspark.sql import SparkSession
-from pyspark.ml import PipelineModel
-from fraud_detection_pipeline.fraud_detector_model_trainer import MyTransform
+from datetime import datetime, timezone
+from urllib.parse import unquote_plus
 
-#TODO: Initiate the appopriate Cloud SDK Clients
-spark = SparkSession.builder.appName("CreditCardFraudDetection").getOrCreate()
+import boto3
 
-#TODO: Modify the function to work with the apporpriate Cloud Storage location
-def watch_directory_and_retrain(data_directory):
-    # TODO: modify the function initiate based on the event in the cloud storage account
-    while True:
-        try:
-            # Watch for new files in the specified directory
-            files = os.listdir(data_directory)
-            for file in files:
-                if file.endswith('.csv') and 'retrain' not in file:
-                    # TODO: modify the imports to call the service on the data in the cloud storage location
-                    new_data_path = os.path.join(data_directory, file)
-                    new_data = spark.read.csv(new_data_path, header=True, inferSchema=True)
-                    print(f"New data detected: {new_data_path}")
 
-                    # TODO: modify the function to kick off the AWS Service Job
-                    MyTransform(new_data)
-                    
-                    # TODO: modify the function to move the processed file to an archive directory in the cloud storage location
-                    current_date = datetime.datetime.now().strftime("%Y%m%d")
-                    retrain_file_path = os.path.join(data_directory, f"{os.path.splitext(file)[0]}_retrain_{current_date}.csv")
-                    os.rename(new_data_path, retrain_file_path)
-                    print(f"Renamed processed file to: {retrain_file_path}")
+glue_client = boto3.client('glue')
+s3_client = boto3.client('s3')
 
-            
-        except Exception as e:
-            print(f"Error: {e}")
-        
-        time.sleep(10)  # Check the directory every 10 seconds`
 
-def main():
-    # Define the data directory to watch
-    data_directory = '/Users/jonathandyer/Documents/Dyer Innovation/data'
-    # Call the function to watch the directory and retrain
-    watch_directory_and_retrain(data_directory)
+def build_archive_key(source_key: str, archive_prefix: str) -> str:
+    filename = source_key.split('/')[-1]
+    name, _ = os.path.splitext(filename)
+    date_suffix = datetime.now(timezone.utc).strftime('%Y%m%d')
+    return f"{archive_prefix.rstrip('/')}/{name}_retrain_{date_suffix}.csv"
 
-if __name__ == "__main__":
-    main()
+
+def process_s3_record(record: dict) -> dict:
+    bucket_name = record['s3']['bucket']['name']
+    object_key = unquote_plus(record['s3']['object']['key'])
+
+    if not object_key.endswith('.csv') or 'retrain' in object_key:
+        return {'status': 'skipped', 'key': object_key}
+
+    glue_job_name = os.environ['GLUE_JOB_NAME']
+    model_save_path = os.environ['MODEL_SAVE_PATH']
+    archive_prefix = os.getenv('ARCHIVE_PREFIX', 'archive')
+
+    data_url = f's3://{bucket_name}/{object_key}'
+
+    response = glue_client.start_job_run(
+        JobName=glue_job_name,
+        Arguments={
+            '--DATA_URL': data_url,
+            '--MODEL_SAVE_PATH': model_save_path,
+            '--JOB_NAME': glue_job_name,
+        },
+    )
+
+    archive_key = build_archive_key(object_key, archive_prefix)
+    s3_client.copy_object(
+        Bucket=bucket_name,
+        CopySource={'Bucket': bucket_name, 'Key': object_key},
+        Key=archive_key,
+    )
+    s3_client.delete_object(Bucket=bucket_name, Key=object_key)
+
+    return {
+        'status': 'processed',
+        'key': object_key,
+        'archive_key': archive_key,
+        'glue_job_run_id': response['JobRunId'],
+    }
+
+
+def lambda_handler(event, context):
+    results = []
+    for record in event.get('Records', []):
+        if record.get('eventSource') != 'aws:s3':
+            continue
+        results.append(process_s3_record(record))
+
+    return {'results': results}
 

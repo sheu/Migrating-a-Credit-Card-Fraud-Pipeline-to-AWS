@@ -1,4 +1,5 @@
 fastapi
+boto3
 numpy
 pydantic
 pyspark

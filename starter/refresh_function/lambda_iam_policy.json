@@ -1,0 +1,49 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowGlueStartJob",
+      "Effect": "Allow",
+      "Action": [
+        "glue:StartJobRun"
+      ],
+      "Resource": "arn:aws:glue:<AWS_REGION>:<ACCOUNT_ID>:job/<GLUE_JOB_NAME>"
+    },
+    {
+      "Sid": "AllowReadSourceRetrainObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject"
+      ],
+      "Resource": "arn:aws:s3:::<DATA_BUCKET>/<RETRAIN_PREFIX>/*"
+    },
+    {
+      "Sid": "AllowArchiveWriteAndDeleteSource",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::<DATA_BUCKET>/<ARCHIVE_PREFIX>/*",
+        "arn:aws:s3:::<DATA_BUCKET>/<RETRAIN_PREFIX>/*"
+      ]
+    },
+    {
+      "Sid": "AllowListBucketForPrefixChecks",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket"
+      ],
+      "Resource": "arn:aws:s3:::<DATA_BUCKET>",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": [
+            "<RETRAIN_PREFIX>/*",
+            "<ARCHIVE_PREFIX>/*"
+          ]
+        }
+      }
+    }
+  ]
+}
