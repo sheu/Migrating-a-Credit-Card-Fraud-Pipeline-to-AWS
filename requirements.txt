@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+pyspark
+pandas
+scikit-learn
+requests
+pytest
+boto3

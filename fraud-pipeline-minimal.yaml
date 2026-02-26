@@ -1,0 +1,358 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Minimal resources to test S3 -> Lambda -> Glue training pipeline.
+  Creates S3 bucket, Glue Job + role, Lambda trigger + role, and configures S3 notifications
+  via a Custom Resource (avoids CloudFormation circular dependency).
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: fraud-pipeline
+    Description: Prefix for resource names.
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Environment suffix.
+
+  # Optional: if you want to force a specific bucket name (must be globally unique),
+  # provide it here. If left blank, CloudFormation will auto-name the bucket.
+  DataBucketName:
+    Type: String
+    Default: ""
+    Description: Optional explicit name for the S3 data bucket.
+
+  GlueJobName:
+    Type: String
+    Default: fraud-model-train
+    Description: Name of the Glue Job.
+
+  GlueScriptS3Uri:
+    Type: String
+    Description: >
+      S3 URI to the Glue job script (glue_job.py), e.g.
+      s3://my-bucket/scripts/glue_job.py
+
+  LambdaCodeS3Bucket:
+    Type: String
+    Description: S3 bucket containing the Lambda zip artifact.
+
+  LambdaCodeS3Key:
+    Type: String
+    Description: S3 key for the Lambda zip artifact, e.g. artifacts/retrain-trigger.zip
+
+  RawPrefix:
+    Type: String
+    Default: raw/
+    Description: S3 prefix for incoming raw training data.
+
+  ProcessedPrefix:
+    Type: String
+    Default: processed/
+    Description: S3 prefix for processed outputs.
+
+  ModelsPrefix:
+    Type: String
+    Default: models/
+    Description: S3 prefix for model artifacts.
+
+  LatestModelSubPrefix:
+    Type: String
+    Default: models/fraud_detection_model_latest/
+    Description: S3 sub-prefix where the Glue job writes the "latest" PipelineModel directory.
+
+  GlueWorkerType:
+    Type: String
+    Default: G.1X
+    AllowedValues: [G.1X, G.2X, G.4X, G.8X]
+    Description: Glue worker type.
+
+  GlueNumberOfWorkers:
+    Type: Number
+    Default: 2
+    MinValue: 2
+    MaxValue: 50
+    Description: Number of Glue workers.
+
+Conditions:
+  UseProvidedBucketName: !Not [!Equals [!Ref DataBucketName, ""]]
+
+Resources:
+  DataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !If
+        - UseProvidedBucketName
+        - !Ref DataBucketName
+        - !Ref "AWS::NoValue"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  DataBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DataBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt DataBucket.Arn
+              - !Sub "${DataBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+
+  GlueServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-${Environment}-glue-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: "sts:AssumeRole"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+      Policies:
+        - PolicyName: S3AccessForTraining
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ListBucket
+                Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !GetAtt DataBucket.Arn
+              - Sid: RWPrefixes
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource:
+                  - !Sub "${DataBucket.Arn}/${RawPrefix}*"
+                  - !Sub "${DataBucket.Arn}/${ProcessedPrefix}*"
+                  - !Sub "${DataBucket.Arn}/${ModelsPrefix}*"
+
+  FraudTrainingGlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: !Ref GlueJobName
+      Role: !GetAtt GlueServiceRole.Arn
+      GlueVersion: "4.0"
+      WorkerType: !Ref GlueWorkerType
+      NumberOfWorkers: !Ref GlueNumberOfWorkers
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      Command:
+        Name: glueetl
+        PythonVersion: "3"
+        ScriptLocation: !Ref GlueScriptS3Uri
+      DefaultArguments:
+        "--job-language": "python"
+        "--enable-continuous-cloudwatch-log": "true"
+        "--enable-metrics": "true"
+        "--INPUT_S3": !Sub "s3://${DataBucket}/${RawPrefix}"
+        "--PROCESSED_S3": !Sub "s3://${DataBucket}/${ProcessedPrefix}"
+        "--MODEL_S3": !Sub "s3://${DataBucket}/${LatestModelSubPrefix}"
+      Timeout: 60
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-${Environment}-lambda-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: "sts:AssumeRole"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: StartGlueJobPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: StartGlueJob
+                Effect: Allow
+                Action:
+                  - glue:StartJobRun
+                Resource: !Sub "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:job/${GlueJobName}"
+
+  RetrainTriggerLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-${Environment}-retrain-trigger"
+      Runtime: python3.12
+      Handler: refresh_function.handler
+      Timeout: 30
+      MemorySize: 256
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          GLUE_JOB_NAME: !Ref GlueJobName
+          INPUT_S3: !Sub "s3://${DataBucket}/${RawPrefix}"
+          PROCESSED_S3: !Sub "s3://${DataBucket}/${ProcessedPrefix}"
+          MODEL_S3: !Sub "s3://${DataBucket}/${LatestModelSubPrefix}"
+      Code:
+        S3Bucket: !Ref LambdaCodeS3Bucket
+        S3Key: !Ref LambdaCodeS3Key
+
+  LambdaInvokePermissionForS3:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref RetrainTriggerLambda
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !GetAtt DataBucket.Arn
+
+  # Custom Resource Lambda that configures S3 bucket notifications AFTER:
+  # - Bucket exists
+  # - Retrain Lambda exists
+  # - Lambda permission exists
+  S3NotificationConfiguratorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-${Environment}-s3notif-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: "sts:AssumeRole"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: PutBucketNotification
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutBucketNotificationConfiguration
+                  - s3:GetBucketNotificationConfiguration
+                  - s3:PutBucketNotification
+                  - s3:GetBucketNotification
+                Resource: !GetAtt DataBucket.Arn
+
+  S3NotificationConfigurator:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-${Environment}-s3notif-config"
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 60
+      Role: !GetAtt S3NotificationConfiguratorRole.Arn
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import urllib3
+
+          s3 = boto3.client("s3")
+          http = urllib3.PoolManager()
+
+          def _send(event, context, status, data=None, reason=None):
+              resp_body = {
+                  "Status": status,
+                  "Reason": reason or "OK",
+                  "PhysicalResourceId": context.log_stream_name,
+                  "StackId": event["StackId"],
+                  "RequestId": event["RequestId"],
+                  "LogicalResourceId": event["LogicalResourceId"],
+                  "NoEcho": False,
+                  "Data": data or {},
+              }
+              body = json.dumps(resp_body).encode("utf-8")
+              http.request("PUT", event["ResponseURL"], body=body, headers={"content-type": ""})
+
+          def handler(event, context):
+              try:
+                  props = event["ResourceProperties"]
+                  bucket = props["BucketName"]
+                  lambda_arn = props["LambdaArn"]
+                  prefix = props["Prefix"]
+                  suffix = props["Suffix"]
+
+                  if event["RequestType"] in ("Create", "Update"):
+                      s3.put_bucket_notification_configuration(
+                          Bucket=bucket,
+                          NotificationConfiguration={
+                              "LambdaFunctionConfigurations": [
+                                  {
+                                      "LambdaFunctionArn": lambda_arn,
+                                      "Events": ["s3:ObjectCreated:*"],
+                                      "Filter": {
+                                          "Key": {
+                                              "FilterRules": [
+                                                  {"Name": "prefix", "Value": prefix},
+                                                  {"Name": "suffix", "Value": suffix},
+                                              ]
+                                          }
+                                      },
+                                  }
+                              ]
+                          },
+                      )
+                      _send(event, context, "SUCCESS", {"Bucket": bucket})
+                  else:
+                      # Clear notifications on delete
+                      s3.put_bucket_notification_configuration(
+                          Bucket=bucket,
+                          NotificationConfiguration={}
+                      )
+                      _send(event, context, "SUCCESS", {"Bucket": bucket})
+              except Exception as e:
+                  _send(event, context, "FAILED", reason=str(e))
+
+  ConfigureBucketNotifications:
+    Type: AWS::CloudFormation::CustomResource
+    DependsOn:
+      - DataBucket
+      - RetrainTriggerLambda
+      - LambdaInvokePermissionForS3
+    Properties:
+      ServiceToken: !GetAtt S3NotificationConfigurator.Arn
+      BucketName: !Ref DataBucket
+      LambdaArn: !GetAtt RetrainTriggerLambda.Arn
+      Prefix: !Ref RawPrefix
+      Suffix: ".csv"
+
+Outputs:
+  BucketName:
+    Description: S3 bucket for raw/processed/models
+    Value: !Ref DataBucket
+
+  RawS3Uri:
+    Description: Upload CSV training data here to trigger retraining
+    Value: !Sub "s3://${DataBucket}/${RawPrefix}"
+
+  ProcessedS3Uri:
+    Description: Glue writes processed train/test here
+    Value: !Sub "s3://${DataBucket}/${ProcessedPrefix}"
+
+  LatestModelS3Uri:
+    Description: Glue writes latest PipelineModel directory here
+    Value: !Sub "s3://${DataBucket}/${LatestModelSubPrefix}"
+
+  GlueJobNameOut:
+    Description: Glue job name
+    Value: !Ref FraudTrainingGlueJob
+
+  RetrainLambdaName:
+    Description: Lambda function that triggers Glue on S3 events
+    Value: !Ref RetrainTriggerLambda
