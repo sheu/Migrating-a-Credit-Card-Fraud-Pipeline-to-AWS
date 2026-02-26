@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 
 import boto3
 from awsglue.context import GlueContext
+from awsglue.dynamicframe import DynamicFrame, DynamicFrameCollection
 from awsglue.utils import getResolvedOptions
 from pyspark.context import SparkContext
 from pyspark.sql.types import StructType, StructField, DoubleType, IntegerType
@@ -104,27 +105,22 @@ def s3_prefix_report(bucket: str, prefix: str) -> dict:
 # Model training logic
 # ----------------------------
 def add_class_weights(df):
-    counts = df.groupBy("Class").count().collect()
-    total = sum(r["count"] for r in counts)
-    weights = {r["Class"]: (total / r["count"]) for r in counts}
+    class_counts = df.groupBy("Class").count().collect()
+    total_count = sum([row['count'] for row in class_counts])
+    weight_dict = {row['Class']: total_count / row['count'] for row in class_counts}
 
-    # Handles Class as int or string
-    df = df.withColumn(
-        "weight",
-        when((col("Class") == 0) | (col("Class") == "0"), float(weights.get(0, weights.get("0", 1.0))))
-        .otherwise(float(weights.get(1, weights.get("1", 1.0))))
-    )
+    # Add class weights to the DataFrame
+    df = df.withColumn("weight", when(col("Class") == 0, weight_dict[0]).otherwise(weight_dict[1]))
     return df
 
 
 def build_pipeline(feature_cols):
     assembler = VectorAssembler(inputCols=feature_cols, outputCol="numericFeatures")
-    scaler = StandardScaler(
-        inputCol="numericFeatures",
-        outputCol="features",
-        withStd=True,
-        withMean=True,
-    )
+    scaler = StandardScaler(inputCol="numericFeatures", outputCol="scaledFeatures", withStd=True, withMean=True)
+
+    # Combine scaled numeric features
+    finalAssembler = VectorAssembler(inputCols=["scaledFeatures"], outputCol="features")
+
     indexer = StringIndexer(inputCol="Class", outputCol="label")
     rf = RandomForestClassifier(
         labelCol="label",
@@ -133,10 +129,15 @@ def build_pipeline(feature_cols):
         maxDepth=10,
         weightCol="weight",
     )
-    return Pipeline(stages=[assembler, scaler, indexer, rf])
+    return Pipeline(stages=[assembler, scaler, finalAssembler, indexer, rf])
 
 
 def train_model(df, test_fraction=0.2, seed=42):
+    # Convert all columns except 'Class' to DoubleType
+    numeric_columns = [c for c in df.columns if c != 'Class']
+    for column in numeric_columns:
+        df = df.withColumn(column, col(column).cast(DoubleType()))
+
     df = add_class_weights(df)
 
     feature_cols = [c for c in df.columns if c not in ("Class", "weight")]
@@ -194,6 +195,51 @@ def count_files_recursive(path: str) -> int:
     if not os.path.isdir(path):
         return 0
     return sum(len(files) for _, _, files in os.walk(path))
+
+
+def MyTransform(glueContext, dfc):
+    try:
+        # Convert DynamicFrameCollection to DataFrame
+        selected_key = list(dfc.keys())[0]
+        dynamic_frame = dfc[selected_key]
+        df = dynamic_frame.toDF()
+
+        # Convert all columns except 'Class' to DoubleType
+        numeric_columns = [c for c in df.columns if c != 'Class']
+        for column in numeric_columns:
+            df = df.withColumn(column, col(column).cast(DoubleType()))
+
+        df = add_class_weights(df)
+        feature_cols = [c for c in df.columns if c not in ("Class", "weight")]
+
+        pipeline = build_pipeline(feature_cols)
+
+        # Fit the model
+        model = pipeline.fit(df)
+
+        # Save model locally then upload to S3
+        local_model_path = '/tmp/fraud_detection_model_latest'
+        model.write().overwrite().save(local_model_path)
+
+        print(f'Model trained and saved to {local_model_path}')
+
+        # Upload local model to S3
+        s3_bucket = os.environ.get('MODEL_S3_BUCKET', 'fraud-detection-model-bucket')
+        s3_prefix = os.environ.get('MODEL_S3_PREFIX', 'model/fraud_detection_model_latest')
+        s3 = boto3.client('s3')
+        for root, dirs, files in os.walk(local_model_path):
+            for file in files:
+                local_file = os.path.join(root, file)
+                relative_path = os.path.relpath(local_file, local_model_path)
+                s3_key = f"{s3_prefix}/{relative_path}"
+                s3.upload_file(local_file, s3_bucket, s3_key)
+        print(f'Model uploaded to s3://{s3_bucket}/{s3_prefix}')
+
+        # Convert DataFrame back to DynamicFrame and return DynamicFrameCollection
+        result_dynamic_frame = DynamicFrame.fromDF(df, glueContext, "result")
+        return DynamicFrameCollection({"results": result_dynamic_frame}, glueContext)
+    except Exception as e:
+        print(f"Error: {e}")
 
 
 # ----------------------------
