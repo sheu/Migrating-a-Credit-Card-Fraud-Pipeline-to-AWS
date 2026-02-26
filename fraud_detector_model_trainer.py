@@ -1,18 +1,20 @@
-# TODO: Import necessary AWS Glue libraries
-from pyspark.sql import SparkSession
+from awsglue.context import GlueContext
+from awsglue.dynamicframe import DynamicFrame, DynamicFrameCollection
 from pyspark.ml.feature import VectorAssembler, StandardScaler, Bucketizer, StringIndexer
 from pyspark.ml.classification import RandomForestClassifier
 from pyspark.ml import Pipeline
 from pyspark.sql.functions import col, hour, when
 from pyspark.sql.types import DoubleType
+import boto3
+import os
 
-# TODO: Remove this SparkSession creation for Glue
-spark = SparkSession.builder.appName("CreditCardFraudDetection").getOrCreate()
 
-# TODO: Modify function signature for Glue
-def MyTransform(df):
+def MyTransform(glueContext, dfc):
     try: 
-        # TODO: Convert DynamicFrameCollection to DataFrame for Glue
+        # Convert DynamicFrameCollection to DataFrame
+        selected_key = list(dfc.keys())[0]
+        dynamic_frame = dfc[selected_key]
+        df = dynamic_frame.toDF()
 
         # Convert all columns except 'Class' to DoubleType
         numeric_columns = [col for col in df.columns if col != 'Class']
@@ -47,27 +49,26 @@ def MyTransform(df):
         # Fit the model
         model = pipeline.fit(df)
 
-        # TODO: Modify model saving for Glue (use S3 instead of local path)
-        model_path = '../fraud_detection_api/model/fraud_detection_model_latest'
-        model.write().overwrite().save(model_path)
+        # Save model locally then upload to S3
+        local_model_path = '/tmp/fraud_detection_model_latest'
+        model.write().overwrite().save(local_model_path)
 
-        print(f'Model trained and saved to {model_path}')
+        print(f'Model trained and saved to {local_model_path}')
 
-        # TODO: Add S3 upload code here for Glue
+        # Upload local model to S3
+        s3_bucket = os.environ.get('MODEL_S3_BUCKET', 'fraud-detection-model-bucket')
+        s3_prefix = os.environ.get('MODEL_S3_PREFIX', 'model/fraud_detection_model_latest')
+        s3 = boto3.client('s3')
+        for root, dirs, files in os.walk(local_model_path):
+            for file in files:
+                local_file = os.path.join(root, file)
+                relative_path = os.path.relpath(local_file, local_model_path)
+                s3_key = f"{s3_prefix}/{relative_path}"
+                s3.upload_file(local_file, s3_bucket, s3_key)
+        print(f'Model uploaded to s3://{s3_bucket}/{s3_prefix}')
 
-        # TODO: Convert DataFrame back to DynamicFrame and return DynamicFrameCollection for Glue
-
-        return df  # TODO: Modify return value for Glue
+        # Convert DataFrame back to DynamicFrame and return DynamicFrameCollection
+        result_dynamic_frame = DynamicFrame.fromDF(df, glueContext, "result")
+        return DynamicFrameCollection({"results": result_dynamic_frame}, glueContext)
     except Exception as e:
         print(f"Error: {e}")
-
-# TODO: Remove this main block for Glue
-if __name__ == "__main__":
-    # Load your CSV file
-    df = spark.read.csv("../data/credit_card_transaction_data_labeled.csv", header=True, inferSchema=True)
-    
-    # Run the transformation
-    result_df = MyTransform(df)
-
-    # Stop the SparkSession
-    spark.stop()
